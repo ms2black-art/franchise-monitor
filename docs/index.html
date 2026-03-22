@@ -315,8 +315,7 @@ const today = new Date();
 document.getElementById('today-date').textContent =
   today.toLocaleDateString('zh-TW', { year:'numeric', month:'long', day:'numeric', weekday:'short' });
 
-// fetchJSON: replaced by inline data catch { return null; }
-}
+// fetchJSON: replaced by inline data
 
 // ── 正規化：把各平台資料統一成同一格式 ──────────────────────────────────────
 function normalize(raw, platform) {
