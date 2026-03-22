@@ -455,11 +455,13 @@ async function init() {
   // 正規化並合併
   let allPosts = [];
   const platformCounts = {};
-  const PLATFORM_ORDER_LOCAL = ['dcard', 'threads', 'facebook', 'ptt'];
-  PLATFORM_ORDER_LOCAL.forEach((platform, i) => {
-    const posts = normalize(raws[i], platform);
+  const platforms = ['dcard', 'threads', 'facebook', 'ptt'];
+  platforms.forEach(platformKey => {
+    const data = DATA_SOURCES[platformKey];
+    if (!data) return;
+    const posts = normalize(data, platformKey);
     allPosts = allPosts.concat(posts);
-    platformCounts[platform] = posts.length;
+    platformCounts[platformKey] = posts.length;
   });
 
   // ── Stats
