@@ -454,8 +454,9 @@ async function init() {
   // 正規化並合併
   let allPosts = [];
   const platformCounts = {};
+  const PLATFORM_ORDER = ['dcard', 'threads', 'facebook', 'ptt'];
   raws.forEach((raw, i) => {
-    const { platform } = DATA_SOURCES[i];
+    const platform = PLATFORM_ORDER[i];
     const posts = normalize(raw, platform);
     allPosts = allPosts.concat(posts);
     platformCounts[platform] = posts.length;
