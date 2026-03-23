@@ -142,6 +142,43 @@
     .sentiment-dot.positive { background: #16A34A; }
     .sentiment-dot.neutral  { background: #94A3B8; }
     .sentiment-dot.negative { background: #DC2626; }
+
+    /* ── Brand Article Cards ── */
+    .brand-articles-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 16px; margin-bottom: 32px;
+    }
+    @media (max-width: 900px) { .brand-articles-grid { grid-template-columns: 1fr; } }
+    .brand-article-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow);
+      display: flex; flex-direction: column; height: 520px;
+    }
+    .brand-article-card .bac-header {
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .brand-article-card .bac-header h3 {
+      font-size: 15px; font-weight: 700; margin-bottom: 2px;
+    }
+    .brand-article-card .bac-header .bac-count {
+      font-size: 12px; color: var(--muted);
+    }
+    .brand-article-card .bac-scroll {
+      flex: 1; overflow-y: auto; padding: 4px 0;
+    }
+    .brand-article-card .bac-scroll::-webkit-scrollbar { width: 4px; }
+    .brand-article-card .bac-scroll::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 2px; }
+    .bac-item {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 10px 16px; border-bottom: 1px solid var(--border);
+      text-decoration: none; color: inherit; transition: background .15s;
+    }
+    .bac-item:last-child { border-bottom: none; }
+    .bac-item:hover { background: var(--bg); }
+    .bac-item .article-title { font-size: 13px; }
+    .bac-item .article-meta  { font-size: 11px; }
   </style>
 </head>
 <body>
@@ -223,7 +260,11 @@
 
     <!-- ── Article List ── -->
     <div class="section-title">最新 30 篇文章</div>
-    <div class="article-list" id="articleList"></div>
+    <div class="article-list" id="articleList" style="margin-bottom:24px"></div>
+
+    <!-- ── Brand Latest Articles ── -->
+    <div class="section-title">品牌最新文章</div>
+    <div class="brand-articles-grid" id="brandArticlesGrid"></div>
 
   </main>
   <script>
@@ -401,6 +442,60 @@
           </div>
         </div>`;
       list.appendChild(a);
+    });
+
+    // ── 品牌最新文章 ──────────────────────────────────────────────────────────
+    const BRAND_FILTERS = [
+      { label: '拉亞',     match: p => {
+        const t = p.title + ' ' + p.summary;
+        return t.includes('拉亞');
+      } },
+      { label: '麥味登',   match: p => {
+        const t = p.title + ' ' + p.summary;
+        return t.includes('麥味登');
+      } },
+      { label: 'Q Burger', match: p => {
+        const t = p.title + ' ' + p.summary;
+        return t.includes('Q Burger') || t.includes('QBurger') || t.includes('Q burger');
+      } },
+    ];
+    const bacGrid = document.getElementById('brandArticlesGrid');
+    BRAND_FILTERS.forEach(bf => {
+      const related = ALL_POSTS
+        .filter(p => p.date && bf.match(p))
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 10);
+      const card = document.createElement('div');
+      card.className = 'brand-article-card';
+      card.innerHTML = `
+        <div class="bac-header">
+          <h3>${bf.label}</h3>
+          <div class="bac-count">最新 ${related.length} 篇相關文章</div>
+        </div>
+        <div class="bac-scroll" id="bacScroll_${bf.label}"></div>`;
+      bacGrid.appendChild(card);
+      const scroll = card.querySelector('.bac-scroll');
+      if (related.length === 0) {
+        scroll.innerHTML = '<div style="padding:20px 16px;color:var(--muted);font-size:13px">尚無相關文章</div>';
+      } else {
+        related.forEach(p => {
+          const a = document.createElement('a');
+          a.className = 'bac-item';
+          a.href = p.url || '#';
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.innerHTML = `
+            <span class="tag tag-${p.platform}">${platformLabel(p.platform)}</span>
+            <div class="article-body">
+              <div class="article-title">${p.title || p.summary || '（無標題）'}</div>
+              <div class="article-meta">
+                <span class="sentiment-dot ${p.sentiment}"></span>
+                ${p.date}&ensp;·&ensp;留言 ${p.comment_count ?? 0}
+              </div>
+            </div>`;
+          scroll.appendChild(a);
+        });
+      }
     });
   </script>
 </body>
