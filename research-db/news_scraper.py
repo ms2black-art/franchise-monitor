@@ -115,6 +115,22 @@ BLACKLIST = [
 SOURCE_SUFFIX_RE = re.compile(r"\s*[-–]\s*[^-–]{2,40}\s*$")
 
 
+# ── 特殊關鍵字額外驗證 ───────────────────────────────────────────────────────
+# 「全家」本身含義廣泛（全家人、全家福），搜尋命中後需確認標題也包含便利商店相關詞
+
+KEYWORD_EXTRA_RULES = {
+    "全家": ["FamilyMart", "便利商店", "集點", "新品", "優惠", "門市", "限定"],
+}
+
+
+def passes_extra_rule(keyword: str, title: str) -> bool:
+    """若該關鍵字有額外驗證規則，標題需另外包含至少一個輔助詞。"""
+    extra = KEYWORD_EXTRA_RULES.get(keyword)
+    if extra is None:
+        return True
+    return any(w in title for w in extra)
+
+
 # ── 過濾函式 ──────────────────────────────────────────────────────────────────
 
 def has_brand(title: str, identifiers: list) -> bool:
@@ -208,6 +224,11 @@ def parse_items(
 
         # 第一層：標題必須含品牌名
         if not has_brand(title, brand_identifiers):
+            no_brand_n += 1
+            continue
+
+        # 特殊關鍵字額外驗證（如「全家」需同時包含便利商店相關詞）
+        if not passes_extra_rule(keyword, title):
             no_brand_n += 1
             continue
 
