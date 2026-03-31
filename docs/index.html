@@ -118,6 +118,30 @@
     .brand-sent-card .brand-total { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
     .brand-sent-card canvas { max-height: 80px; }
 
+    /* ── Dual Feed Layout ── */
+    .dual-feed {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 16px; margin-bottom: 24px;
+    }
+    @media (max-width: 768px) { .dual-feed { grid-template-columns: 1fr; } }
+    .feed-panel {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow);
+      display: flex; flex-direction: column; min-height: 0;
+    }
+    .feed-header {
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      flex-shrink: 0;
+    }
+    .feed-header h2 { font-size: 14px; font-weight: 700; }
+    .feed-more {
+      font-size: 12px; color: var(--muted);
+      text-decoration: none; white-space: nowrap;
+    }
+    .feed-more:hover { color: var(--text); }
+
     /* ── Article List ── */
     .article-list {
       background: var(--card); border: 1px solid var(--border);
@@ -125,7 +149,7 @@
     }
     .article-item {
       display: flex; align-items: flex-start; gap: 12px;
-      padding: 14px 16px; border-bottom: 1px solid var(--border);
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
       text-decoration: none; color: inherit; transition: background .15s;
     }
     .article-item:last-child { border-bottom: none; }
@@ -299,9 +323,23 @@
       <canvas id="chartHotKw" style="max-height:400px"></canvas>
     </div>
 
-    <!-- ── Article List ── -->
-    <div class="section-title">最新 30 篇文章</div>
-    <div class="article-list" id="articleList" style="margin-bottom:24px"></div>
+    <!-- ── Dual Feed ── -->
+    <div class="dual-feed">
+      <div class="feed-panel">
+        <div class="feed-header">
+          <h2>🔥 最熱門討論</h2>
+          <span class="feed-more">PTT・Dcard・Threads・Facebook</span>
+        </div>
+        <div class="article-list" id="hotDiscussion"></div>
+      </div>
+      <div class="feed-panel">
+        <div class="feed-header">
+          <h2>📰 最新新聞</h2>
+          <span class="feed-more">Yahoo 奇摩・LINE Today</span>
+        </div>
+        <div class="article-list" id="hotNews"></div>
+      </div>
+    </div>
 
     <!-- ── Brand Latest Articles ── -->
     <div class="section-title">品牌最新文章</div>
@@ -474,29 +512,60 @@
       },
     });
 
-    // ── 最新 30 篇文章 ────────────────────────────────────────────────────────
-    const sorted = [...ALL_POSTS]
-      .filter(p => p.date)
+    // ── 🔥 最熱門討論（PTT / Dcard / Threads / Facebook）────────────────────
+    const SOCIAL_PLATFORMS = new Set(['dcard','threads','facebook','ptt']);
+    const hotDiscPosts = [...ALL_POSTS]
+      .filter(p => SOCIAL_PLATFORMS.has(p.platform) && p.date)
+      .sort((a, b) => (b.comment_count ?? 0) - (a.comment_count ?? 0))
+      .slice(0, 30);
+    const discList = document.getElementById('hotDiscussion');
+    if (hotDiscPosts.length === 0) {
+      discList.innerHTML = '<div style="padding:20px 16px;color:var(--muted);font-size:13px">尚無資料</div>';
+    } else {
+      hotDiscPosts.forEach(p => {
+        const a = document.createElement('a');
+        a.className = 'article-item';
+        a.href = p.url || '#';
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.innerHTML = `
+          <span class="tag tag-${p.platform}">${platformLabel(p.platform)}</span>
+          <div class="article-body">
+            <div class="article-title">${p.title || p.summary || '（無標題）'}</div>
+            <div class="article-meta">
+              <span class="sentiment-dot ${p.sentiment}"></span>
+              ${p.date}&ensp;·&ensp;💬 ${p.comment_count ?? 0}
+            </div>
+          </div>`;
+        discList.appendChild(a);
+      });
+    }
+
+    // ── 📰 最新新聞（Yahoo / LINE Today）────────────────────────────────────
+    const NEWS_PLATFORMS = new Set(['yahoo_news','line_today']);
+    const hotNewsPosts = [...ALL_POSTS]
+      .filter(p => NEWS_PLATFORMS.has(p.platform) && p.date)
       .sort((a, b) => b.date.localeCompare(a.date))
       .slice(0, 30);
-    const list = document.getElementById('articleList');
-    sorted.forEach(p => {
-      const a = document.createElement('a');
-      a.className = 'article-item';
-      a.href = p.url || '#';
-      a.target = '_blank';
-      a.rel = 'noopener noreferrer';
-      a.innerHTML = `
-        <span class="tag tag-${p.platform}">${platformLabel(p.platform)}</span>
-        <div class="article-body">
-          <div class="article-title">${p.title || p.summary || '（無標題）'}</div>
-          <div class="article-meta">
-            <span class="sentiment-dot ${p.sentiment}"></span>
-            ${p.date}&ensp;·&ensp;留言 ${p.comment_count ?? 0}
-          </div>
-        </div>`;
-      list.appendChild(a);
-    });
+    const newsList = document.getElementById('hotNews');
+    if (hotNewsPosts.length === 0) {
+      newsList.innerHTML = '<div style="padding:20px 16px;color:var(--muted);font-size:13px">尚無資料</div>';
+    } else {
+      hotNewsPosts.forEach(p => {
+        const a = document.createElement('a');
+        a.className = 'article-item';
+        a.href = p.url || '#';
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.innerHTML = `
+          <span class="tag tag-${p.platform}">${platformLabel(p.platform)}</span>
+          <div class="article-body">
+            <div class="article-title">${p.title || '（無標題）'}</div>
+            <div class="article-meta">${p.date}</div>
+          </div>`;
+        newsList.appendChild(a);
+      });
+    }
 
     // ── 品牌最新文章 ──────────────────────────────────────────────────────────
     const BRAND_FILTERS = [
