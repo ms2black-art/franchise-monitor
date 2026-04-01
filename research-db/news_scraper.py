@@ -103,6 +103,25 @@ JP_BRAND_IDENTIFIERS = [
     "すき家", "吉野家", "松屋", "サイゼリヤ", "ガスト",
 ]
 
+# ── 日文專屬過濾 ──────────────────────────────────────────────────────────────
+
+# 日文黑名單：含以下詞彙直接排除（體育賽事 / 犯罪）
+JP_BLACKLIST = [
+    # 體育
+    "テニス", "競馬", "ダービー", "騎手", "レース", "スポーツ",
+    "サッカー", "野球", "バスケ", "ゴルフ", "水泳", "陸上",
+    "選手", "監督", "コーチ", "チーム", "リーグ", "試合", "得点",
+    # 犯罪 / 社會
+    "事件", "逮捕", "詐欺", "裁判", "警察", "死亡", "火災",
+]
+
+# 日文必須包含詞：標題需含以下至少一個詞（確保為餐飲 / 零售新聞）
+JP_REQUIRED = [
+    "メニュー", "新商品", "キャンペーン", "限定", "販売", "発売",
+    "コラボ", "新発売", "期間限定", "セール", "割引", "クーポン",
+    "店舗", "加盟", "フランチャイズ", "新店", "オープン",
+]
+
 # ── 第二層過濾：標題黑名單 ────────────────────────────────────────────────────
 
 BLACKLIST = [
@@ -193,11 +212,20 @@ def parse_items(
     market: str,
     brand_identifiers: list,
     limit: int = MAX_PER_KEYWORD,
+    extra_blacklist: list = None,
+    required_words: list = None,
 ) -> tuple[list, int, int]:
     """
     解析 RSS item，套用雙層過濾。
+    extra_blacklist : 額外黑名單（如日文體育 / 犯罪詞）
+    required_words  : 標題必須含至少一個詞才收錄（如日文餐飲相關詞）
     回傳 (通過的文章列表, 黑名單排除數, 無品牌排除數)
     """
+    if extra_blacklist is None:
+        extra_blacklist = []
+    if required_words is None:
+        required_words = []
+
     results       = []
     blacklisted_n = 0
     no_brand_n    = 0
@@ -224,13 +252,21 @@ def parse_items(
             (item.findtext("description") or "")
         )[:200].strip()
 
-        # 第二層：黑名單先檢查
+        # 第二層：主黑名單 + 額外黑名單
         if not not_blacklisted(title):
+            blacklisted_n += 1
+            continue
+        if extra_blacklist and any(w in title for w in extra_blacklist):
             blacklisted_n += 1
             continue
 
         # 第一層：標題必須含品牌名
         if not has_brand(title, brand_identifiers):
+            no_brand_n += 1
+            continue
+
+        # 必須包含詞驗證（日文餐飲相關詞）
+        if required_words and not any(w in title for w in required_words):
             no_brand_n += 1
             continue
 
@@ -327,7 +363,9 @@ def main():
         raw_total += len(items)
 
         parsed, bl_n, nb_n = parse_items(
-            items, "yahoo_jp", kw, "日本", JP_BRAND_IDENTIFIERS
+            items, "yahoo_jp", kw, "日本", JP_BRAND_IDENTIFIERS,
+            extra_blacklist=JP_BLACKLIST,
+            required_words=JP_REQUIRED,
         )
         total_bl      += bl_n
         total_nobrand += nb_n
@@ -366,19 +404,30 @@ def main():
     print(f"  總計             ：{len(all_results)} 篇")
     print(f"  輸出             ：{out_path}")
 
-    # 前 10 篇標題確認品質
-    print(f"\n  【前 10 篇標題確認】")
+    # 前 10 篇標題確認品質（全部）
+    print(f"\n  【前 10 篇標題確認（全部）】")
     print(f"  {'─' * 56}")
     for i, p in enumerate(all_results[:10], 1):
         market_tag = f"[{p['market']}]"
         plat_map   = {
-            "yahoo_news": "Yahoo TW",
+            "yahoo_news": "Yahoo TW ",
             "line_today":  "LINE Today",
             "yahoo_jp":   "Yahoo JP ",
         }
         plat_tag = plat_map.get(p["platform"], p["platform"])
         print(f"  {i:>2}. [{plat_tag}]{market_tag} {p['title'][:45]}")
         print(f"      {p['date']}  keyword={p['keyword']}")
+
+    # 前 10 篇日文標題確認（過濾後品質確認）
+    jp_results = [p for p in all_results if p["market"] == "日本"]
+    print(f"\n  【前 10 篇日文新聞標題確認（過濾後）】")
+    print(f"  {'─' * 56}")
+    if jp_results:
+        for i, p in enumerate(jp_results[:10], 1):
+            print(f"  {i:>2}. {p['title'][:50]}")
+            print(f"      {p['date']}  keyword={p['keyword']}")
+    else:
+        print("  （無日文新聞）")
     print(f"{'═' * 60}\n")
 
 
