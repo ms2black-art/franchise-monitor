@@ -29,6 +29,8 @@ echo ""
 echo "✅ 完成！Dashboard 已更新："
 echo "https://ms2black-art.github.io/franchise-monitor"
 echo "=============================="
+echo "[6.5/7] 執行 FAQ 問題挖掘分析..."
+python3 research-db/faq_finder.py
 echo "[6/5] 執行拉亞網站智慧更新分析..."
 python3 /Users/chihong.wang/Desktop/marketing-tools/laya-website/scripts/smart_update.py
 echo "✅ 智慧更新報告已產生，請查看 laya-website/reports/ 資料夾"
