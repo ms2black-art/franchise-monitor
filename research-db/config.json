@@ -1,0 +1,50 @@
+{
+  "topics": [
+    {
+      "keyword": "台灣加盟展活動",
+      "category": "展覽與活動資訊",
+      "description": "台灣連鎖加盟展覽活動資訊，包含展期、地點、規模、新參展品牌"
+    },
+    {
+      "keyword": "早餐加盟品牌動態",
+      "category": "競品動態",
+      "description": "台灣早餐連鎖加盟品牌最新動態，包含拉亞漢堡、麥當勞早餐、美而美等品牌展店、新品、行銷活動"
+    },
+    {
+      "keyword": "連鎖加盟市場新聞",
+      "category": "加盟市場數據",
+      "description": "台灣連鎖加盟產業新聞、市場規模數據、產業報告、法規動態"
+    },
+    {
+      "keyword": "創業加盟趨勢",
+      "category": "加盟市場數據",
+      "description": "台灣創業加盟最新趨勢，包含熱門加盟類別、投資回報、創業者需求分析"
+    }
+  ],
+  "dcard": {
+    "keywords": [
+      "拉亞", "拉亞漢堡", "拉雅", "Laya", "Laya Burger",
+      "拉亞杜拜", "拉亞KITKAT", "拉亞開心果",
+      "麥味登", "Q Burger", "QBurger", "q burger", "qburger",
+      "弘爺", "晨間廚房", "美而美",
+      "美芝城", "萬佳香", "早安公雞", "呷尚寶", "JSP", "蕃茄村",
+      "聯名", "加盟", "早餐", "創業", "手搖飲", "早午餐"
+    ],
+    "limit_per_keyword": 100
+  },
+  "ptt": {
+    "enabled": true,
+    "boards": ["Lifeismoney", "Food", "part-time", "toberich"],
+    "keywords": [
+      "拉亞", "拉亞漢堡", "拉雅", "Laya", "Laya Burger",
+      "拉亞杜拜", "拉亞KITKAT", "拉亞開心果",
+      "麥味登", "Q Burger", "QBurger", "q burger", "qburger",
+      "弘爺", "晨間廚房", "美而美",
+      "美芝城", "萬佳香", "早安公雞", "呷尚寶", "JSP", "蕃茄村",
+      "聯名", "加盟", "早餐", "創業", "副業", "開店", "franchise",
+      "連鎖", "餐飲加盟", "早午餐", "咖啡加盟", "手搖飲加盟"
+    ],
+    "category": "PTT 討論",
+    "max_pages_per_board": 8
+  }
+}
