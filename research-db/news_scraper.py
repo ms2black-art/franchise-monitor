@@ -42,6 +42,7 @@ HEADERS = {
 }
 
 MAX_PER_KEYWORD = 10
+MAX_PER_SOURCE  = 25   # 每個直接 RSS 來源最多取幾篇（過濾後）
 
 # ── 平台設定 ──────────────────────────────────────────────────────────────────
 # 說明：各平台真實 URL（供文件記錄），實際抓取使用 Google News RSS + site:
@@ -54,6 +55,19 @@ TW_PLATFORMS = {
     "line_today":  "today.line.me",
 }
 TW_RSS = "https://news.google.com/rss/search?q={query}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
+
+# 台灣直接 RSS 來源（直接抓全文，再用品牌關鍵字過濾）
+TW_DIRECT_RSS = {
+    "東森新聞":  "https://news.ebc.net.tw/rss",
+    "年代新聞":  "https://www.nexttv.com.tw/rss",
+    "民視新聞":  "https://www.ftvnews.com.tw/rss/rss.aspx",
+    "三立新聞":  "https://www.setn.com/rss.aspx",
+    "TVBS新聞":  "https://news.tvbs.com.tw/rss/news",
+    "中時新聞":  "https://www.chinatimes.com/rss/realtime.xml",
+    "自由時報":  "https://news.ltn.com.tw/rss/all.xml",
+    "ETtoday":   "https://feeds.feedburner.com/ettoday/realtime",
+    "聯合新聞網": "https://udn.com/rssfeed/news/2/0?ch=news",
+}
 
 # 日本平台
 # Yahoo Japan 新聞：https://news.yahoo.co.jp/search?p=關鍵字
@@ -70,6 +84,8 @@ TW_BRAND_KEYWORDS = [
     "7-ELEVEN", "7-11", "全家", "FamilyMart",
     # 拉亞系列
     "拉亞", "拉亞漢堡", "拉雅", "Laya", "Laya Burger",
+    # 拉亞聯名產品（每次有新聯名在此新增）
+    "拉亞KITKAT", "KitKat貝果", "杜拜開心果巧克力早餐",
     # 早餐連鎖
     "麥味登", "Q Burger", "QBurger", "弘爺", "晨間廚房",
     "美而美", "美芝城", "萬佳香", "早安公雞", "呷尚寶", "JSP", "蕃茄村",
@@ -89,7 +105,8 @@ JP_BRAND_KEYWORDS = [
 # 台灣品牌識別詞（標題中只要出現其一即視為品牌相關）
 TW_BRAND_IDENTIFIERS = [
     "麥當勞", "肯德基", "摩斯", "MOS", "7-ELEVEN", "7-11", "全家", "FamilyMart",
-    "拉亞", "Laya", "麥味登", "Q Burger", "QBurger", "q burger", "qburger",
+    "拉亞", "Laya", "拉亞KITKAT", "KitKat貝果", "杜拜開心果巧克力早餐",
+    "麥味登", "Q Burger", "QBurger", "q burger", "qburger",
     "弘爺", "晨間廚房", "美而美", "美芝城", "萬佳香",
     "早安公雞", "呷尚寶", "JSP", "蕃茄村",
     "50嵐", "清心福全", "CoCo", "大苑子", "迷客夏",
@@ -166,6 +183,8 @@ def has_brand(title: str, identifiers: list) -> bool:
 
 def not_blacklisted(title: str) -> bool:
     """第二層：標題不含黑名單詞。"""
+    if title.startswith("討論牆 |"):   # LINE Today 討論牆功能，排除
+        return False
     return not any(kw in title for kw in BLACKLIST)
 
 
@@ -288,6 +307,88 @@ def parse_items(
     return results, blacklisted_n, no_brand_n
 
 
+# ── 直接 RSS 抓取與過濾 ────────────────────────────────────────────────────────
+
+def fetch_direct_rss_items(url: str, source_name: str) -> list:
+    """直接抓取 RSS 來源（不帶查詢參數），回傳所有 item。"""
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=15)
+        resp.raise_for_status()
+        root = ET.fromstring(resp.content)
+        return root.findall(".//item")
+    except Exception as e:
+        print(f"    ⚠  RSS 失敗（{source_name}）：{e}")
+        return []
+
+
+def parse_items_direct(
+    items: list,
+    source_name: str,
+    market: str = "台灣",
+    limit: int = MAX_PER_SOURCE,
+) -> tuple[list, int, int]:
+    """
+    直接 RSS 過濾：
+    ① 標題不含黑名單詞
+    ② 標題含至少一個台灣品牌識別詞
+    與 Google News 流程邏輯一致，但 URL 直接使用 <link>，
+    platform 統一為 "tw_rss"，keyword 取命中的第一個品牌識別詞。
+    """
+    results       = []
+    blacklisted_n = 0
+    no_brand_n    = 0
+
+    for item in items:
+        if len(results) >= limit:
+            break
+
+        pub_date = item.findtext("pubDate", "")
+        date_str = parse_rss_date(pub_date)
+        if not is_within_7_days(date_str):
+            continue
+
+        raw_title = item.findtext("title", "")
+        title     = clean_title(raw_title)
+        if not title:
+            continue
+
+        # 直接 RSS 的 <link> 就是真實 URL
+        url = (item.findtext("link") or "").strip()
+        if not url:
+            url = (item.findtext("guid") or "").strip()
+        summary = re.sub(
+            r"<[^>]+>",
+            "",
+            (item.findtext("description") or ""),
+        )[:200].strip()
+
+        # ① 黑名單過濾
+        if not not_blacklisted(title):
+            blacklisted_n += 1
+            continue
+
+        # ② 必須含品牌名
+        if not has_brand(title, TW_BRAND_IDENTIFIERS):
+            no_brand_n += 1
+            continue
+
+        matched_brand = next(
+            (b for b in TW_BRAND_IDENTIFIERS if b in title), ""
+        )
+        results.append({
+            "title":    title,
+            "url":      url,
+            "platform": "tw_rss",
+            "source":   source_name,
+            "date":     date_str,
+            "summary":  summary,
+            "keyword":  matched_brand,
+            "market":   market,
+        })
+
+    return results, blacklisted_n, no_brand_n
+
+
 # ── 去重 ─────────────────────────────────────────────────────────────────────
 
 def dedup(posts: list) -> list:
@@ -312,6 +413,7 @@ def main():
     all_results   = []
     tw_yahoo_n    = 0
     tw_line_n     = 0
+    tw_rss_n      = 0
     jp_n          = 0
     raw_total     = 0
     total_bl      = 0
@@ -377,6 +479,27 @@ def main():
         if done_jp < total_jp_q:
             time.sleep(2)
 
+    # ── 台灣直接 RSS（東森 / 年代 / 民視 / 三立 / TVBS / 中時 / 自由 / ET / 聯合）────
+    tw_rss_n = 0
+    print(f"\n  【台灣直接 RSS】{len(TW_DIRECT_RSS)} 個來源")
+    print(f"  {'─' * 56}")
+
+    for source_name, rss_url in TW_DIRECT_RSS.items():
+        print(f"  {source_name:<12} ...", end=" ", flush=True)
+        items = fetch_direct_rss_items(rss_url, source_name)
+        if not items:
+            print("（無資料）")
+            continue
+
+        parsed, bl_n, nb_n = parse_items_direct(items, source_name)
+        total_bl      += bl_n
+        total_nobrand += nb_n
+        tw_rss_n      += len(parsed)
+        all_results.extend(parsed)
+
+        print(f"原始 {len(items):>4} 篇 → 通過 {len(parsed):>2} 篇")
+        time.sleep(1)   # 對各站台禮貌性延遲
+
     # ── 去重 + 排序 ───────────────────────────────────────────────────────────
     before_dedup = len(all_results)
     all_results  = dedup(all_results)
@@ -392,6 +515,7 @@ def main():
 
     tw_final = sum(1 for p in all_results if p["market"] == "台灣")
     jp_final = sum(1 for p in all_results if p["market"] == "日本")
+    tw_rss_final = sum(1 for p in all_results if p.get("platform") == "tw_rss")
 
     print(f"\n{'─' * 60}")
     print(f"  RSS 原始         ：{raw_total} 篇")
@@ -399,7 +523,7 @@ def main():
     print(f"  無品牌名排除     ：{total_nobrand} 篇")
     print(f"  去重排除         ：{before_dedup - len(all_results)} 篇")
     print(f"  ─────────────────────────────────────────────────")
-    print(f"  台灣新聞         ：{tw_final} 篇（Yahoo {tw_yahoo_n} / LINE {tw_line_n}）")
+    print(f"  台灣新聞         ：{tw_final} 篇（Yahoo {tw_yahoo_n} / LINE {tw_line_n} / 直接RSS {tw_rss_final}）")
     print(f"  日本新聞         ：{jp_final} 篇")
     print(f"  總計             ：{len(all_results)} 篇")
     print(f"  輸出             ：{out_path}")
