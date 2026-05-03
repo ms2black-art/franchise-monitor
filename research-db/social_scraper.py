@@ -51,10 +51,16 @@ THREADS_KEYWORDS = [
     "KITKAT貝果", "杜拜貝果", "拉亞杜拜", "拉亞KITKAT",
 ]
 
-FACEBOOK_KEYWORDS = [
-    "拉亞漢堡加盟", "早餐加盟", "連鎖加盟",
-    "KITKAT貝果", "杜拜貝果", "拉亞杜拜", "拉亞KITKAT",
+# 直接爬取品牌粉絲專頁
+# 端點：GET https://api.bycrawl.com/facebook/users/{username}/posts
+# Header：Authorization: Bearer {BYCRAWL_API_KEY}
+FACEBOOK_PAGES = [
+    {"username": "layaburger2002", "name": "拉亞漢堡"},   # 確認有效
+    {"username": "MWD.tw",        "name": "麥味登"},      # 備用（目前 0 篇）
+    {"username": "qburger2013",   "name": "Q Burger"},    # 備用（目前 0 篇）
 ]
+
+POSTS_PER_PAGE = 10   # 每個粉專最多取幾篇貼文
 
 # Instagram tags/search 用的查詢詞（回傳 hashtag 統計，不是個別貼文）
 INSTAGRAM_TAGS = [
@@ -71,6 +77,11 @@ INSTAGRAM_TAGS = [
 
 def make_headers(api_key: str) -> dict:
     return {"x-api-key": api_key}
+
+
+def make_bearer_headers(api_key: str) -> dict:
+    """部分端點（如 Facebook users）使用 Bearer Token 格式。"""
+    return {"Authorization": f"Bearer {api_key}"}
 
 
 def is_within_days(iso_str: str, days: int = 7) -> bool:
@@ -165,58 +176,75 @@ def scrape_threads(api_key: str) -> list[dict]:
     return results
 
 
-# ── Facebook ─────────────────────────────────────────────────────────────────
+# ── Facebook 粉專 ─────────────────────────────────────────────────────────────
 
 def scrape_facebook(api_key: str) -> list[dict]:
     """
-    端點：GET /facebook/posts/search?q=xxx
-    每次最多回傳 10 筆。
-    回傳欄位：text、page_name、url、created_at、reactions、comments、shares
+    端點：GET https://api.bycrawl.com/facebook/users/{username}/posts
+    Header：Authorization: Bearer {api_key}
+    直接爬取品牌粉絲專頁公開貼文，每個粉專取最新 POSTS_PER_PAGE 篇。
+    0 篇時靜默跳過；API 失敗時同樣跳過，不中斷流程。
     """
-    headers  = make_headers(api_key)
-    results  = []
-    seen_ids: set = set()
+    headers = make_bearer_headers(api_key)
+    results: list[dict] = []
 
-    print(f"\n  ── [Facebook] 搜尋 {len(FACEBOOK_KEYWORDS)} 個關鍵字 ──")
+    print(f"\n  ── [Facebook 粉專] 抓取 {len(FACEBOOK_PAGES)} 個品牌粉專 ──")
 
-    for keyword in FACEBOOK_KEYWORDS:
-        print(f"    「{keyword}」...", end=" ", flush=True)
-        data = api_get(
-            f"{API_BASE}/facebook/posts/search",
-            headers,
-            params={"q": keyword},
-        )
-        if not data:
-            print("失敗")
-            continue
+    for page in FACEBOOK_PAGES:
+        username = page["username"]
+        name     = page["name"]
+        try:
+            resp = requests.get(
+                f"{API_BASE}/facebook/users/{username}/posts",
+                headers=headers,
+                timeout=API_TIMEOUT,
+            )
+            print(f"    [{name}] @{username} ... HTTP {resp.status_code}", end=" ", flush=True)
+            data  = resp.json()
+            posts = data.get("posts", data.get("items", data.get("data", [])))
 
-        posts     = data.get("posts", data.get("items", []))
-        new_count = 0
-        for post in posts:
-            if not is_within_days(post.get("createdAt", "")):
+            if not posts:
+                print("→ 0 篇，跳過")
                 continue
-            post_id = post.get("id")
-            if post_id in seen_ids:
-                continue
-            seen_ids.add(post_id)
 
-            author = post.get("author", {})
-            results.append({
-                "platform":    "facebook",
-                "keyword":     keyword,
-                "text":        (post.get("text") or post.get("message") or "")[:300],
-                "page_name":   author.get("name", "") if isinstance(author, dict) else "",
-                "url":         post.get("permalinkUrl", post.get("url", "")),
-                "created_at":  post.get("createdAt", ""),
-                "reactions":   post.get("reactionCount", 0),
-                "comments":    post.get("commentCount", 0),
-                "shares":      post.get("shareCount", 0),
-            })
-            new_count += 1
+            new_count = 0
+            for p in posts[:POSTS_PER_PAGE]:
+                post_id  = p.get("id", "")
+                text     = (p.get("text") or p.get("message") or "").strip()
+                raw_date = p.get("created_time", p.get("createdAt", p.get("created_at", "")))
+                results.append({
+                    # 標準欄位（用戶要求格式）
+                    "title":         text[:60],
+                    "content":       text,
+                    "platform":      "Facebook",
+                    "source":        "Facebook粉專",
+                    "brand":         name,
+                    "date":          raw_date[:10] if raw_date else "",
+                    "url":           (
+                        p.get("url")
+                        or p.get("permalinkUrl")
+                        or (f"https://www.facebook.com/{username}/posts/{post_id}" if post_id else "")
+                    ),
+                    "likes":         p.get("likes_count",    p.get("likeCount",    p.get("likes",    0))),
+                    "comment_count": p.get("comments_count", p.get("commentCount", p.get("comments", 0))),
+                    # build.py 相容欄位（不要移除）
+                    "text":          text,
+                    "created_at":    raw_date,
+                    "comments":      p.get("comments_count", p.get("commentCount", p.get("comments", 0))),
+                })
+                new_count += 1
 
-        print(f"找到 {new_count} 篇")
+            latest_title = results[-new_count]["title"] if new_count else ""
+            print(f"→ {new_count} 篇")
+            if latest_title:
+                print(f"      最新：{latest_title}")
 
-    print(f"  [Facebook] 共 {len(results)} 篇（7天內，去重後）")
+        except Exception as e:
+            print(f"    [{name}] 失敗：{e}")
+
+        time.sleep(1.5)   # 每個粉專間隔，避免觸發速率限制
+
+    print(f"  [Facebook 粉專] 共 {len(results)} 篇")
     return results
 
 
@@ -280,7 +308,7 @@ def main() -> None:
 
     print(f"\n{'═' * 62}")
     print(f"  社群平台爬蟲（bycrawl API）·  日期：{today}")
-    print(f"  平台：Threads / Facebook / Instagram")
+    print(f"  平台：Threads / Facebook粉專（{len(FACEBOOK_PAGES)} 個）/ Instagram")
     print(f"  輸出：{output_file}")
     print(f"{'═' * 62}")
 
@@ -302,10 +330,11 @@ def main() -> None:
     # 整合輸出
     output = {
         "meta": {
-            "date":          today,
-            "generated_at":  datetime.now().isoformat(timespec="seconds"),
-            "threads_count": len(threads_posts),
-            "facebook_count": len(fb_posts),
+            "date":                    today,
+            "generated_at":            datetime.now().isoformat(timespec="seconds"),
+            "threads_count":           len(threads_posts),
+            "facebook_page_count":     len(fb_posts),
+            "facebook_pages_scraped":  [p["username"] for p in FACEBOOK_PAGES],
             "instagram_hashtag_count": len(ig_tags),
         },
         "threads":   threads_posts,
@@ -317,8 +346,10 @@ def main() -> None:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
     total = len(threads_posts) + len(fb_posts)
+    page_labels = "、".join(p["brand"] for p in FACEBOOK_PAGES)
     print(f"\n{'═' * 62}")
-    print(f"  完成！Threads {len(threads_posts)} 篇 ／ Facebook {len(fb_posts)} 篇 ／ Instagram {len(ig_tags)} 個 hashtag")
+    print(f"  完成！Threads {len(threads_posts)} 篇 ／ Facebook粉專 {len(fb_posts)} 篇 ／ Instagram {len(ig_tags)} 個 hashtag")
+    print(f"  抓取粉專：{page_labels}")
     print(f"  貼文總計：{total} 篇")
     print(f"  結果存於：{output_file}")
     print(f"{'═' * 62}\n")
