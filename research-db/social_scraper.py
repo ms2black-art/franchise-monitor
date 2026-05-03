@@ -346,7 +346,7 @@ def main() -> None:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
     total = len(threads_posts) + len(fb_posts)
-    page_labels = "、".join(p["brand"] for p in FACEBOOK_PAGES)
+    page_labels = "、".join(p["name"] for p in FACEBOOK_PAGES)
     print(f"\n{'═' * 62}")
     print(f"  完成！Threads {len(threads_posts)} 篇 ／ Facebook粉專 {len(fb_posts)} 篇 ／ Instagram {len(ig_tags)} 個 hashtag")
     print(f"  抓取粉專：{page_labels}")
