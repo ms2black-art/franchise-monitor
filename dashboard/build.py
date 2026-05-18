@@ -1296,19 +1296,47 @@ def main() -> None:
     if social_weekly_path:
         raw_social = json.loads(social_weekly_path.read_text(encoding="utf-8"))
         if isinstance(raw_social, dict):
-            threads_weekly  = [add_sentiment({
-                "title": (p.get("text") or "")[:60], "url": p.get("url", ""),
-                "platform": "threads", "date": (p.get("created_at") or "")[:10],
-                "comment_count": p.get("replies", 0), "summary": (p.get("text") or "")[:150],
-                "market": "台灣",
-            }) for p in raw_social.get("threads", [])]
-            facebook_weekly = [add_sentiment({
-                "title": (p.get("text") or "")[:60], "url": p.get("url", ""),
-                "platform": "facebook", "date": (p.get("created_at") or "")[:10],
-                "comment_count": p.get("comments", 0), "summary": (p.get("text") or "")[:150],
-                "market": "台灣",
-            }) for p in raw_social.get("facebook", [])]
+            # Threads：text 欄位為主要內容
+            for p in raw_social.get("threads", []):
+                text = (p.get("text") or "")
+                threads_weekly.append(add_sentiment({
+                    "title": text[:60], "url": p.get("url", ""),
+                    "platform": "threads", "date": (p.get("created_at") or "")[:10],
+                    "comment_count": p.get("replies", 0), "summary": text[:150],
+                    "market": "台灣",
+                }))
+            # Facebook：text 可能為空，優先用 title/content
+            for p in raw_social.get("facebook", []):
+                text = (p.get("text") or p.get("title") or p.get("content") or "")
+                facebook_weekly.append(add_sentiment({
+                    "title": text[:60], "url": p.get("url", ""),
+                    "platform": "facebook", "date": (p.get("created_at") or p.get("date") or "")[:10],
+                    "comment_count": p.get("comments", p.get("comment_count", 0)),
+                    "summary": text[:150],
+                    "market": "台灣",
+                }))
+            # Instagram hashtag 統計
             ig_data = raw_social.get("instagram", [])
+        else:
+            # 若是 list 格式，依 platform 欄位分流
+            for p in raw_social:
+                plat = p.get("platform", "")
+                text = (p.get("text") or p.get("title") or "")
+                if plat == "threads":
+                    threads_weekly.append(add_sentiment({
+                        "title": text[:60], "url": p.get("url", ""),
+                        "platform": "threads", "date": (p.get("created_at") or "")[:10],
+                        "comment_count": p.get("replies", 0), "summary": text[:150],
+                        "market": "台灣",
+                    }))
+                elif plat == "facebook":
+                    facebook_weekly.append(add_sentiment({
+                        "title": text[:60], "url": p.get("url", ""),
+                        "platform": "facebook", "date": (p.get("created_at") or p.get("date") or "")[:10],
+                        "comment_count": p.get("comments", p.get("comment_count", 0)),
+                        "summary": text[:150],
+                        "market": "台灣",
+                    }))
         print(f"  ✓  {social_weekly_path.name:<26} threads {len(threads_weekly)} 篇 / facebook {len(facebook_weekly)} 篇")
     else:
         print("  ⚠  找不到 social_YYYY-MM-DD.json")
