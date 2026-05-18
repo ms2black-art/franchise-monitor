@@ -1357,11 +1357,56 @@ def main() -> None:
     else:
         print("  ⚠  找不到 news_YYYY-MM-DD.json")
 
+    # ── Event 事件監測資料 ──────────────────────────────────
+    event_posts = []
+    event_files = sorted(glob.glob(str(DATA_DIR / "event_*.json")), reverse=True)
+    for ef in event_files:
+        try:
+            raw_event = json.loads(Path(ef).read_text(encoding="utf-8"))
+            results = raw_event.get("results", [])
+            for p in results:
+                plat_raw = (p.get("platform") or "").lower()
+                # 正規化平台名稱
+                if "thread" in plat_raw:
+                    platform = "threads"
+                elif "dcard" in plat_raw:
+                    continue  # 跳過 Dcard
+                elif "新聞" in plat_raw or "news" in plat_raw:
+                    platform = "yahoo_news"
+                else:
+                    platform = plat_raw
+                if platform in EXCLUDED_PLATFORMS:
+                    continue
+                event_posts.append(add_sentiment({
+                    "title":         (p.get("title") or "")[:60],
+                    "url":           p.get("url", ""),
+                    "platform":      platform,
+                    "date":          (p.get("created_at") or "")[:10],
+                    "comment_count": p.get("comments", 0),
+                    "summary":       (p.get("summary") or "")[:150],
+                    "market":        "台灣",
+                }))
+        except Exception as e:
+            print(f"  ⚠  讀取 {Path(ef).name} 失敗：{e}")
+    if event_posts:
+        print(f"  ✓  event_*.json ({len(event_files)} 檔) {len(event_posts):>4} 篇")
+
     # ── 彙整（不含 PTT / Dcard）──────────────────────────────
-    all_posts = threads_posts + facebook_posts + news_posts
+    all_posts = threads_posts + facebook_posts + news_posts + event_posts
+    # 去重（用 url）
+    seen_urls = set()
+    deduped = []
+    for p in all_posts:
+        url = p.get("url", "")
+        if url and url in seen_urls:
+            continue
+        if url:
+            seen_urls.add(url)
+        deduped.append(p)
+    all_posts = deduped
     # 再次確保沒有 PTT/Dcard 資料混入
     all_posts = [p for p in all_posts if p.get("platform", "") not in EXCLUDED_PLATFORMS]
-    print(f"\n  → 合計 {len(all_posts)} 篇（Threads {len(threads_posts)} + Facebook {len(facebook_posts)} + 新聞 {len(news_posts)}）")
+    print(f"\n  → 合計 {len(all_posts)} 篇（Threads {len(threads_posts)} + Facebook {len(facebook_posts)} + 新聞 {len(news_posts)} + Event {len(event_posts)}，去重後）")
 
     # 為每篇文章加上分類標籤
     for p in all_posts:
