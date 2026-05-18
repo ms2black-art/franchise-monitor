@@ -35,6 +35,29 @@ BRANDS = [
     "美芝城", "萬佳香", "早安公雞", "呷尚寶", "蕃茄村",
 ]
 
+# ── 品牌判斷關鍵字（文章內容必須明確包含才算提及）────────────────────────────
+BRAND_MATCH_KEYWORDS = {
+    "拉亞":     ["拉亞", "Laya", "laya"],
+    "麥味登":   ["麥味登"],
+    "Q Burger": ["Q Burger", "QBurger", "q burger", "qburger"],
+    "弘爺":     ["弘爺"],
+    "晨間廚房": ["晨間廚房"],
+    "美而美":   ["美而美"],
+    "美芝城":   ["美芝城"],
+    "萬佳香":   ["萬佳香"],
+    "早安公雞": ["早安公雞"],
+    "呷尚寶":   ["呷尚寶"],
+    "蕃茄村":   ["蕃茄村"],
+}
+
+
+def brand_mentioned(post: dict, brand: str) -> bool:
+    """檢查文章內容是否明確提及指定品牌（不靠 keyword 欄位）"""
+    text = (post.get("title", "") + " " + post.get("summary", "")
+            + " " + post.get("text", "") + " " + post.get("content", ""))
+    keywords = BRAND_MATCH_KEYWORDS.get(brand, [brand])
+    return any(kw in text for kw in keywords)
+
 KEYWORDS = [
     "加盟", "早餐", "創業", "副業", "開店", "連鎖", "餐飲加盟",
     "早午餐", "咖啡加盟", "手搖飲加盟",
@@ -226,11 +249,10 @@ def generate_monthly_insights(all_posts: list) -> dict:
     """根據當月資料產生市場洞察（取代 FAQ_DATA）"""
     monthly = [p for p in all_posts if p.get("date", "") >= CURRENT_MONTH_START]
 
-    # 各品牌當月統計
+    # 各品牌當月統計（用 brand_mentioned 判斷，不靠 keyword 欄位）
     brand_stats = {}
     for brand in BRANDS:
-        brand_posts = [p for p in monthly
-                       if brand in (p.get("title", "") + " " + p.get("summary", ""))]
+        brand_posts = [p for p in monthly if brand_mentioned(p, brand)]
         activity_posts = [p for p in brand_posts if classify_post(p) == "活動"]
         taste_posts = [p for p in brand_posts if classify_post(p) == "口味"]
         brand_stats[brand] = {
@@ -782,9 +804,29 @@ def build_html(all_posts: list, promos: list, faq_data: dict, ig_data: list = No
 
   </main>
   <script>
+    // ── 品牌判斷關鍵字 ───────────────────────────────────────────────────────
+    const BRAND_KEYWORDS = {{
+      '拉亞':     ['拉亞', 'Laya', 'laya'],
+      '麥味登':   ['麥味登'],
+      'Q Burger': ['Q Burger', 'QBurger', 'q burger', 'qburger'],
+      '弘爺':     ['弘爺'],
+      '晨間廚房': ['晨間廚房'],
+      '美而美':   ['美而美'],
+      '美芝城':   ['美芝城'],
+      '萬佳香':   ['萬佳香'],
+      '早安公雞': ['早安公雞'],
+      '呷尚寶':   ['呷尚寶'],
+      '蕃茄村':   ['蕃茄村'],
+    }};
+    function brandMentioned(post, brand) {{
+      const text = (post.title || '') + ' ' + (post.summary || '');
+      const kws = BRAND_KEYWORDS[brand] || [brand];
+      return kws.some(kw => text.includes(kw));
+    }}
+
     // ── 工具 ─────────────────────────────────────────────────────────────────
-    function countMentions(posts, kw) {{
-      return posts.filter(p => (p.title + ' ' + p.summary).includes(kw)).length;
+    function countMentions(posts, brand) {{
+      return posts.filter(p => brandMentioned(p, brand)).length;
     }}
     function countOccurrences(posts, kw) {{
       let n = 0;
@@ -887,7 +929,7 @@ def build_html(all_posts: list, promos: list, faq_data: dict, ig_data: list = No
     // ── 品牌情緒分析（當月）──────────────────────────────────────────────────
     const grid = document.getElementById('brandSentimentGrid');
     BRAND_SENTIMENT_TARGETS.forEach((brand, idx) => {{
-      const related = monthlyPosts.filter(p => (p.title + ' ' + p.summary).includes(brand));
+      const related = monthlyPosts.filter(p => brandMentioned(p, brand));
       const bp = related.filter(p => p.sentiment === 'positive').length;
       const bn = related.filter(p => p.sentiment === 'negative').length;
       const bnu = related.length - bp - bn;
