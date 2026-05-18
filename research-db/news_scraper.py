@@ -183,7 +183,7 @@ def has_brand(title: str, identifiers: list) -> bool:
 
 def not_blacklisted(title: str) -> bool:
     """第二層：標題不含黑名單詞。"""
-    if title.startswith("討論牆 |"):   # LINE Today 討論牆功能，排除
+    if title.startswith("討論牆 |") or title.startswith("討論牆|"):   # LINE Today 討論牆功能，排除
         return False
     return not any(kw in title for kw in BLACKLIST)
 

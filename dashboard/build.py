@@ -163,15 +163,22 @@ def load_news(path: Path) -> list:
     posts = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(posts, dict):
         posts = posts.get("posts", [])
-    return [add_sentiment({
-        "title":         p.get("title", ""),
-        "url":           p.get("url", ""),
-        "platform":      p.get("platform", "news"),
-        "date":          (p.get("date") or "")[:10],
-        "comment_count": 0,
-        "summary":       p.get("summary", ""),
-        "market":        p.get("market", "台灣"),
-    }) for p in posts]
+    result = []
+    for p in posts:
+        title = p.get("title", "")
+        # 移除 LINE Today 討論牆文章
+        if title.startswith("討論牆 |") or title.startswith("討論牆|") or title.startswith("討論牆"):
+            continue
+        result.append(add_sentiment({
+            "title":         title,
+            "url":           p.get("url", ""),
+            "platform":      p.get("platform", "news"),
+            "date":          (p.get("date") or "")[:10],
+            "comment_count": 0,
+            "summary":       p.get("summary", ""),
+            "market":        p.get("market", "台灣"),
+        }))
+    return result
 
 
 # ── 活動資料載入 ──────────────────────────────────────────────────────────────
@@ -249,6 +256,28 @@ def generate_monthly_insights(all_posts: list) -> dict:
     all_activity = [p for p in monthly if classify_post(p) == "活動"]
     all_taste = [p for p in monthly if classify_post(p) == "口味"]
 
+    # 代表性討論 Top 3（依留言數排序）
+    activity_top3 = sorted(all_activity, key=lambda p: p.get("comment_count", 0), reverse=True)[:3]
+    taste_top3 = sorted(all_taste, key=lambda p: p.get("comment_count", 0), reverse=True)[:3]
+
+    # 品牌熱點洞察
+    brand_activity_ranking = sorted(
+        [(b, v["activity_comments"]) for b, v in brand_stats.items() if v["activity_comments"] > 0],
+        key=lambda x: x[1], reverse=True
+    )
+    brand_hotspot = ""
+    if brand_activity_ranking:
+        top_b, top_comments = brand_activity_ranking[0]
+        # 找出該品牌最熱的活動文章標題
+        top_brand_activity = [p for p in all_activity
+                              if top_b in (p.get("title", "") + " " + p.get("summary", ""))]
+        if top_brand_activity:
+            hottest = max(top_brand_activity, key=lambda p: p.get("comment_count", 0))
+            topic_hint = (hottest.get("title", "") or hottest.get("summary", ""))[:30]
+            brand_hotspot = f"{top_b}本月因「{topic_hint}」相關活動引發最多討論（{top_comments} 則留言）"
+        else:
+            brand_hotspot = f"{top_b}本月活動類討論留言數最高（{top_comments} 則留言）"
+
     # 行銷建議（根據留言熱度）
     suggestions = generate_marketing_suggestions(brand_stats, all_activity, all_taste, monthly)
 
@@ -259,6 +288,21 @@ def generate_monthly_insights(all_posts: list) -> dict:
         "activity_comments": sum(p.get("comment_count", 0) for p in all_activity),
         "taste_total": len(all_taste),
         "taste_comments": sum(p.get("comment_count", 0) for p in all_taste),
+        "activity_top3": [{
+            "title": (p.get("title", "") or p.get("summary", ""))[:80],
+            "platform": p.get("platform", ""),
+            "comment_count": p.get("comment_count", 0),
+            "url": p.get("url", ""),
+            "date": p.get("date", ""),
+        } for p in activity_top3],
+        "taste_top3": [{
+            "title": (p.get("title", "") or p.get("summary", ""))[:80],
+            "platform": p.get("platform", ""),
+            "comment_count": p.get("comment_count", 0),
+            "url": p.get("url", ""),
+            "date": p.get("date", ""),
+        } for p in taste_top3],
+        "brand_hotspot": brand_hotspot,
         "suggestions": suggestions,
     }
 
@@ -659,6 +703,22 @@ def build_html(all_posts: list, promos: list, faq_data: dict, ig_data: list = No
     <h1>加盟品牌監測 Dashboard</h1>
     <span class="date">{today_str}</span>
   </header>
+
+  <!-- ── AI 搜尋 Bar ── -->
+  <div style="max-width:1200px;margin:0 auto;padding:16px 16px 0">
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;box-shadow:var(--shadow);display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <input id="aiInput" type="text" placeholder="詢問 AI：例如「本月哪個品牌話題最熱？」或「拉亞最近有什麼新品？」"
+        style="flex:1;min-width:200px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-size:14px;outline:none;transition:border .2s"
+        onfocus="this.style.borderColor='#F97316'" onblur="this.style.borderColor='var(--border)'"
+      />
+      <button id="aiBtn" onclick="askAI()"
+        style="background:#F97316;color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .15s"
+        onmouseover="this.style.background='#EA580C'" onmouseout="this.style.background='#F97316'"
+      >送出</button>
+    </div>
+    <div id="aiAnswer" style="display:none;margin-top:12px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow);font-size:14px;line-height:1.7;white-space:pre-wrap"></div>
+  </div>
+
   <main>
 
     <!-- ── Stats ── -->
@@ -703,11 +763,22 @@ def build_html(all_posts: list, promos: list, faq_data: dict, ig_data: list = No
       <div class="insight-section">
         <div class="insight-section-label">🔥 品牌討論熱度（依留言數排序）</div>
         <div class="brand-top-grid" id="insightBrands"></div>
+        <div id="brandHotspot" style="margin-top:12px;padding:10px 14px;background:#FFF;border:1px solid #FDDCB5;border-radius:8px;font-size:13px;color:#7C3C00;font-weight:600;display:none"></div>
       </div>
 
       <div class="insight-section">
         <div class="insight-section-label">📂 活動類 vs 口味類討論</div>
         <div class="topic-list" id="insightCategories"></div>
+      </div>
+
+      <div class="insight-section">
+        <div class="insight-section-label">🎯 活動類代表性討論 Top 3</div>
+        <div class="article-list" id="activityTop3" style="border:1px solid #FDDCB5"></div>
+      </div>
+
+      <div class="insight-section">
+        <div class="insight-section-label">🍔 口味類代表性討論 Top 3</div>
+        <div class="article-list" id="tasteTop3" style="border:1px solid #FDDCB5"></div>
       </div>
 
       <div class="insight-section">
@@ -1222,6 +1293,13 @@ def build_html(all_posts: list, promos: list, faq_data: dict, ig_data: list = No
         brandGrid.innerHTML = '<div style="color:#A0522D;font-size:13px">本月尚無品牌討論資料</div>';
       }}
 
+      // 品牌熱點洞察
+      if (insights.brand_hotspot) {{
+        const hotspot = document.getElementById('brandHotspot');
+        hotspot.style.display = 'block';
+        hotspot.textContent = '🏷️ ' + insights.brand_hotspot;
+      }}
+
       // 活動類 vs 口味類
       const catList = document.getElementById('insightCategories');
       const maxCat = Math.max(insights.activity_comments || 0, insights.taste_comments || 0, 1);
@@ -1239,6 +1317,31 @@ def build_html(all_posts: list, promos: list, faq_data: dict, ig_data: list = No
         catList.appendChild(row);
       }});
 
+      // 活動類代表性討論 Top 3
+      function renderTopPosts(containerId, posts) {{
+        const el = document.getElementById(containerId);
+        if (!posts || posts.length === 0) {{
+          el.innerHTML = '<div style="padding:14px 16px;color:var(--muted);font-size:13px">本月尚無相關討論</div>';
+          return;
+        }}
+        posts.forEach(p => {{
+          const a = document.createElement('a');
+          a.className = 'article-item';
+          a.href = p.url || '#';
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          a.innerHTML = `
+            <span class="tag tag-${{p.platform}}">${{platformLabel(p.platform)}}</span>
+            <div class="article-body">
+              <div class="article-title">${{p.title || '（無標題）'}}</div>
+              <div class="article-meta">${{p.date}}&ensp;·&ensp;💬 ${{p.comment_count || 0}}</div>
+            </div>`;
+          el.appendChild(a);
+        }});
+      }}
+      renderTopPosts('activityTop3', insights.activity_top3);
+      renderTopPosts('tasteTop3', insights.taste_top3);
+
       // 行銷建議
       const sugList = document.getElementById('insightSuggestions');
       (insights.suggestions || []).forEach((s, i) => {{
@@ -1250,6 +1353,80 @@ def build_html(all_posts: list, promos: list, faq_data: dict, ig_data: list = No
         sugList.appendChild(card);
       }});
     }})();
+
+    // ── AI 搜尋功能 ──────────────────────────────────────────────────────────
+    async function askAI() {{
+      const input = document.getElementById('aiInput');
+      const btn = document.getElementById('aiBtn');
+      const answer = document.getElementById('aiAnswer');
+      const question = input.value.trim();
+      if (!question) return;
+
+      btn.disabled = true;
+      btn.textContent = '⏳ 思考中...';
+      answer.style.display = 'block';
+      answer.innerHTML = '<div style="text-align:center;color:var(--muted)">🔄 AI 正在分析資料...</div>';
+
+      // 計算 context 資料
+      const actCount = monthlyPosts.filter(p => classifyPost(p) === '活動').length;
+      const actComments = monthlyPosts.filter(p => classifyPost(p) === '活動').reduce((s,p) => s + (p.comment_count||0), 0);
+      const flavorCount = monthlyPosts.filter(p => classifyPost(p) === '口味').length;
+      const flavorComments = monthlyPosts.filter(p => classifyPost(p) === '口味').reduce((s,p) => s + (p.comment_count||0), 0);
+      // 找最熱品牌
+      let topBrand = '無';
+      let maxComments = 0;
+      BRANDS.forEach(b => {{
+        const bPosts = monthlyPosts.filter(p => (p.title+' '+p.summary).includes(b));
+        const bComments = bPosts.reduce((s,p) => s + (p.comment_count||0), 0);
+        if (bComments > maxComments) {{ maxComments = bComments; topBrand = b + '(' + bComments + '則留言)'; }}
+      }});
+      // 最新新聞
+      const NEWS_PLATS = new Set(['yahoo_news','line_today','tw_rss']);
+      const recentNews = monthlyPosts
+        .filter(p => NEWS_PLATS.has(p.platform))
+        .sort((a,b) => b.date.localeCompare(a.date))
+        .slice(0, 3)
+        .map(p => p.title).join('；');
+
+      try {{
+        const resp = await fetch('https://api.anthropic.com/v1/messages', {{
+          method: 'POST',
+          headers: {{
+            'Content-Type': 'application/json',
+            'x-api-key': window.__ANTHROPIC_KEY || '',
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true',
+          }},
+          body: JSON.stringify({{
+            model: 'claude-sonnet-4-20250514',
+            max_tokens: 1000,
+            system: `你是一個台灣加盟品牌市場分析助理。\\n以下是本月的監測資料摘要：\\n- 監測品牌：拉亞漢堡、麥味登、Q Burger、弘爺、晨間廚房、美而美\\n- 監測平台：Threads、Facebook、Yahoo新聞、LINE Today\\n- 本月活動類文章：${{actCount}} 篇，總留言 ${{actComments}} 則\\n- 本月口味類文章：${{flavorCount}} 篇，總留言 ${{flavorComments}} 則\\n- 本月最熱品牌：${{topBrand}}\\n- 最新新聞標題：${{recentNews || '暫無'}}\\n請用繁體中文回答，簡潔有洞察力。`,
+            messages: [{{role: 'user', content: question}}]
+          }})
+        }});
+        if (!resp.ok) {{
+          const err = await resp.text();
+          if (resp.status === 401) {{
+            answer.innerHTML = '<div style="color:#DC2626">⚠️ 尚未設定 API Key。請在瀏覽器 Console 執行：<br><code>window.__ANTHROPIC_KEY = "sk-ant-..."</code></div>';
+          }} else {{
+            answer.innerHTML = `<div style="color:#DC2626">⚠️ API 錯誤 (${{resp.status}})：${{err.slice(0, 200)}}</div>`;
+          }}
+          return;
+        }}
+        const data = await resp.json();
+        const text = data.content?.[0]?.text || '（無回應）';
+        answer.innerHTML = text.replace(/\\n/g, '<br>');
+      }} catch (e) {{
+        answer.innerHTML = `<div style="color:#DC2626">⚠️ 網路錯誤：${{e.message}}</div>`;
+      }} finally {{
+        btn.disabled = false;
+        btn.textContent = '送出';
+      }}
+    }}
+    // Enter 鍵送出
+    document.getElementById('aiInput').addEventListener('keydown', e => {{
+      if (e.key === 'Enter') askAI();
+    }});
 
   </script>
 </body>
